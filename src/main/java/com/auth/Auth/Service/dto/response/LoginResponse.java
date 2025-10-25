@@ -20,5 +20,6 @@ public class LoginResponse {
     private String email;
     private String roleName;
     private boolean isActive;
+    private boolean setupCompleted;
     private String message;
 }

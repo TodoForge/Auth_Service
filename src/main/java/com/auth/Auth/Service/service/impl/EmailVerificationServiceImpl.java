@@ -65,6 +65,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void sendVerificationEmailByEmail(String email) {
         System.out.println("Looking for user with email: " + email);
         

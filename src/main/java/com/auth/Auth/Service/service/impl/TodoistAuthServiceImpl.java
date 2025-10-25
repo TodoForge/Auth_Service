@@ -23,7 +23,6 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class TodoistAuthServiceImpl implements TodoistAuthService {
 
     private final UserRepository userRepository;
@@ -54,12 +53,53 @@ public class TodoistAuthServiceImpl implements TodoistAuthService {
         return username;
     }
 
+    private String generateUniqueUsername(String email) {
+        String baseUsername = email.split("@")[0];
+        if (baseUsername.length() > 10) {
+            baseUsername = baseUsername.substring(0, 10);
+        }
+        
+        // Try different combinations until we find a unique one
+        for (int i = 0; i < 100; i++) {
+            String suffix = String.valueOf(System.currentTimeMillis() % 10000 + i);
+            String username = baseUsername + suffix;
+            
+            if (username.length() > 15) {
+                username = username.substring(0, 15);
+            }
+            if (username.length() < 8) {
+                username = username + "0000".substring(0, 8 - username.length());
+            }
+            
+            if (!userRepository.existsByUsername(username)) {
+                return username;
+            }
+        }
+        
+        // Fallback: use UUID
+        return "user" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
+
     @Override
+    @Transactional
     public SignupResponse signup(TodoistSignupRequest request) {
         try {
-            // Check if user already exists
+            // Check if user already exists by email
             if (userRepository.existsByEmail(request.getEmail())) {
-                throw new RuntimeException("Email already exists");
+                throw new RuntimeException("Email already exists. Please use a different email or try logging in.");
+            }
+
+            // Check if user already exists by phone number
+            if (userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
+                throw new RuntimeException("Phone number already exists. Please use a different phone number.");
+            }
+
+            // Check if username already exists (generate first to check)
+            String username = generateUsername(request.getEmail());
+            if (userRepository.existsByUsername(username)) {
+                // Try to generate a unique username
+                username = generateUniqueUsername(request.getEmail());
             }
 
             // Create user with minimal fields (like Todoist)
@@ -67,10 +107,10 @@ public class TodoistAuthServiceImpl implements TodoistAuthService {
                     .fullName(request.getName())
                     .email(request.getEmail())
                     .password(passwordEncoder.encode(request.getPassword()))
-                    .username(generateUsername(request.getEmail()))
-                    .phoneNumber("0000000000") // Default
+                    .username(username)
+                    .phoneNumber(request.getPhoneNumber()) // Use phone number from request
                     .dateOfBirth(LocalDate.of(1990, 1, 1)) // Default
-                    .purpose(com.auth.Auth.Service.enums.Purpose.PERSONAL) // Default
+                    .purpose(com.auth.Auth.Service.enums.Purpose.PENDING) // Default - will be set after email verification
                     .department("Default") // Default
                     .workEmail(request.getEmail()) // Same as email
                     .workLocation("Default") // Default
@@ -146,10 +186,25 @@ public class TodoistAuthServiceImpl implements TodoistAuthService {
 
             return response;
 
+        } catch (RuntimeException e) {
+            // Re-throw our custom exceptions with proper messages
+            throw e;
         } catch (Exception e) {
             System.err.println("Signup failed: " + e.getMessage());
             e.printStackTrace();
-            throw new RuntimeException("Signup failed: " + e.getMessage(), e);
+            
+            // Handle specific database constraint violations
+            if (e.getMessage().contains("duplicate key value violates unique constraint")) {
+                if (e.getMessage().contains("uk_email")) {
+                    throw new RuntimeException("Email already exists. Please use a different email or try logging in.");
+                } else if (e.getMessage().contains("uk_phone_number")) {
+                    throw new RuntimeException("Phone number already exists. Please use a different phone number.");
+                } else if (e.getMessage().contains("uk_username")) {
+                    throw new RuntimeException("Username already exists. Please try again.");
+                }
+            }
+            
+            throw new RuntimeException("Registration failed. Please try again.", e);
         }
     }
 
@@ -199,7 +254,7 @@ public class TodoistAuthServiceImpl implements TodoistAuthService {
                 System.err.println("User not found with email: " + email);
                 System.err.println("Available users in database:");
                 userRepository.findAll().forEach(u -> System.err.println("  - " + u.getEmail()));
-                throw new RuntimeException("User not found");
+                throw new RuntimeException("Invalid email or password. Please check your credentials and try again.");
             }
             
             System.out.println("Found user: " + user.getEmail() + " (ID: " + user.getId() + ")");
@@ -207,11 +262,15 @@ public class TodoistAuthServiceImpl implements TodoistAuthService {
             System.out.println("User email verified: " + user.isEmailVerified());
 
             if (!passwordEncoder.matches(password, user.getPassword())) {
-                throw new RuntimeException("Invalid password");
+                throw new RuntimeException("Invalid email or password. Please check your credentials and try again.");
+            }
+
+            if (!user.isEmailVerified()) {
+                throw new RuntimeException("Please verify your email address before logging in. Check your inbox for a verification link.");
             }
 
             if (!user.isActive()) {
-                throw new RuntimeException("Account not activated. Please verify your email first.");
+                throw new RuntimeException("Your account is currently inactive. Please contact support for assistance.");
             }
 
             // Generate both access and refresh tokens

@@ -42,9 +42,62 @@ CREATE TABLE IF NOT EXISTS role (
     description VARCHAR(255)
 );
 
--- Insert default ADMIN role
-INSERT INTO role (id, name, description) 
+-- Create purpose table
+CREATE TABLE IF NOT EXISTS purpose (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description VARCHAR(255)
+);
+
+-- Create integration table
+CREATE TABLE IF NOT EXISTS integration (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description VARCHAR(255),
+    icon_url VARCHAR(255)
+);
+
+-- Insert default roles
+INSERT INTO role (id, name, description)
 VALUES (gen_random_uuid(), 'ADMIN', 'Administrator role')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO role (id, name, description)
+VALUES (gen_random_uuid(), 'USER', 'Regular user role')
+ON CONFLICT (name) DO NOTHING;
+
+-- Insert purpose options
+INSERT INTO purpose (id, name, description)
+VALUES (gen_random_uuid(), 'PENDING', 'User has not selected a purpose yet')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO purpose (id, name, description)
+VALUES (gen_random_uuid(), 'PERSONAL', 'Personal use and individual productivity')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO purpose (id, name, description)
+VALUES (gen_random_uuid(), 'WORK', 'Work and professional tasks')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO purpose (id, name, description)
+VALUES (gen_random_uuid(), 'COMPANY', 'Company-wide team collaboration')
+ON CONFLICT (name) DO NOTHING;
+
+-- Insert integration options
+INSERT INTO integration (id, name, description, icon_url)
+VALUES (gen_random_uuid(), 'GOOGLE_CALENDAR', 'Google Calendar integration', '/icons/google-calendar.svg')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO integration (id, name, description, icon_url)
+VALUES (gen_random_uuid(), 'OUTLOOK', 'Microsoft Outlook integration', '/icons/outlook.svg')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO integration (id, name, description, icon_url)
+VALUES (gen_random_uuid(), 'SLACK', 'Slack workspace integration', '/icons/slack.svg')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO integration (id, name, description, icon_url)
+VALUES (gen_random_uuid(), 'TEAMS', 'Microsoft Teams integration', '/icons/teams.svg')
 ON CONFLICT (name) DO NOTHING;
 
 -- Verify Setup
