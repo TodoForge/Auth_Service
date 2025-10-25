@@ -190,4 +190,13 @@ public class UserServiceImpl implements UserService {
         user.setEmail(user.getEmail());
         return UserMapper.toResponse(user);
     }
+
+    @Override
+    @Transactional
+    public User updateUser(User user) {
+        if (user == null) {
+            throw new IllegalArgumentException("User cannot be null");
+        }
+        return userRepository.save(user);
+    }
 }

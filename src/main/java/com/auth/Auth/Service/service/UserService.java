@@ -26,5 +26,8 @@ public interface UserService {
     SignupResponse updateByUsername(String username);
     SignupResponse updateByEmail(String email);
     SignupResponse updateByPhoneNumber(String phoneNumber);
+    
+    // Add updateUser method for UserProfileController
+    User updateUser(User user);
 
 }
