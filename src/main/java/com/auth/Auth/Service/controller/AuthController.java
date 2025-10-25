@@ -6,11 +6,11 @@ import com.auth.Auth.Service.dto.response.LoginResponse;
 import com.auth.Auth.Service.dto.response.SignupResponse;
 import com.auth.Auth.Service.service.AuthService;
 import com.auth.Auth.Service.service.EmailVerificationService;
-import com.auth.Auth.Service.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -25,17 +25,60 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
-    private final UserRepository userRepository;
 
     @PostMapping("/register")
     public ResponseEntity<SignupResponse> register(@RequestBody SignupRequest request){
-        return ResponseEntity.ok(authService.registerUser(request));
+        try {
+            return ResponseEntity.ok(authService.registerUser(request));
+        } catch (Exception e) {
+            System.err.println("Registration error: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(SignupResponse.builder()
+                .message("Registration failed: " + e.getMessage())
+                .build());
+        }
     }
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request, HttpServletResponse response){
         LoginResponse loginResponse = authService.loginUser(request, response);
-        return ResponseEntity.ok(loginResponse);
+        
+        // Get tokens from the service response (before they're removed from response body)
+        String accessToken = loginResponse.getAccessToken();
+        String refreshToken = loginResponse.getRefreshToken();
+        
+        // Set access token cookie
+        ResponseCookie accessTokenCookie = ResponseCookie.from("access_token", accessToken)
+                .httpOnly(true)
+                .secure(false) // Set to true in production with HTTPS
+                .path("/")
+                .maxAge(15*60) // 15 minutes
+                .sameSite("Lax")
+                .build();
+        
+        // Set refresh token cookie
+        ResponseCookie refreshTokenCookie = ResponseCookie.from("refresh_token", refreshToken)
+                .httpOnly(true)
+                .secure(false) // Set to true in production with HTTPS
+                .path("/")
+                .maxAge(24*60*60) // 24 hours
+                .sameSite("Lax")
+                .build();
+        
+        response.addHeader("Set-Cookie", accessTokenCookie.toString());
+        response.addHeader("Set-Cookie", refreshTokenCookie.toString());
+        
+        // Return response without token
+        LoginResponse responseBody = LoginResponse.builder()
+                .username(loginResponse.getUsername())
+                .fullName(loginResponse.getFullName())
+                .email(loginResponse.getEmail())
+                .roleName(loginResponse.getRoleName())
+                .isActive(loginResponse.isActive())
+                .message("Login successful")
+                .build();
+        
+        return ResponseEntity.ok(responseBody);
     }
 
     @PostMapping("/logout")
@@ -44,59 +87,6 @@ public class AuthController {
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping("/test")
-    public ResponseEntity<Map<String, String>> test(){
-        return ResponseEntity.ok(Map.of("message", "Auth Service is working!"));
-    }
-
-    @GetMapping("/test-user/{email}")
-    public ResponseEntity<Map<String, Object>> testUser(@PathVariable String email) {
-        try {
-            // Try to find user by email
-            var user = userRepository.findByEmail(email);
-            if (user.isPresent()) {
-                return ResponseEntity.ok(Map.of(
-                    "found", true,
-                    "email", user.get().getEmail(),
-                    "id", user.get().getId().toString(),
-                    "active", user.get().isActive(),
-                    "emailVerified", user.get().isEmailVerified()
-                ));
-            } else {
-                return ResponseEntity.ok(Map.of(
-                    "found", false,
-                    "message", "User not found with email: " + email
-                ));
-            }
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                "error", e.getMessage()
-            ));
-        }
-    }
-
-    @GetMapping("/test-all-users")
-    public ResponseEntity<Map<String, Object>> testAllUsers() {
-        try {
-            var users = userRepository.findAll();
-            var userList = users.stream().map(user -> Map.of(
-                "id", user.getId().toString(),
-                "email", user.getEmail(),
-                "username", user.getUsername(),
-                "active", user.isActive(),
-                "emailVerified", user.isEmailVerified()
-            )).toList();
-            
-            return ResponseEntity.ok(Map.of(
-                "totalUsers", users.size(),
-                "users", userList
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                "error", e.getMessage()
-            ));
-        }
-    }
 
     @PostMapping("/admin/add-user")
     @PreAuthorize("hasRole('ADMIN')")

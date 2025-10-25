@@ -48,16 +48,25 @@ public class AuthServiceImpl implements AuthService {
 
    @Override
 public SignupResponse registerUser(SignupRequest request) {
-    if(userRepository.existsByEmail(request.getEmail())) {
-        throw new RuntimeException("Email Already Exist");
-    } else if (userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
-        throw new RuntimeException("Phone Number Already Exist");
-    } else if (userRepository.existsByUsername(request.getUsername())) {
-        throw new RuntimeException("Username Already Exist");
-    }
+    try {
+        if(userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("Email Already Exist");
+        } else if (userRepository.existsByPhoneNumber(request.getPhoneNumber())) {
+            throw new RuntimeException("Phone Number Already Exist");
+        } else if (userRepository.existsByUsername(request.getUsername())) {
+            throw new RuntimeException("Username Already Exist");
+        }
 
-    User user = UserMapper.toEntity(request);
-    user.setPassword(passwordEncoder.encode(request.getPassword()));
+        System.out.println("Creating user with email: " + request.getEmail());
+        User user = UserMapper.toEntity(request);
+        System.out.println("User entity created: " + (user != null ? "SUCCESS" : "FAILED"));
+        
+        if (user == null) {
+            throw new RuntimeException("Failed to create user entity");
+        }
+        
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        System.out.println("Password encoded successfully");
 
     // ALL users become ADMIN - create role if it doesn't exist
     Role adminRole = roleRepository.findByName("ADMIN")
@@ -94,20 +103,27 @@ public SignupResponse registerUser(SignupRequest request) {
     savedUser.setOrganizationId(defaultOrg.getId());
     userRepository.save(savedUser);
 
-    // ✅ 4. Send email verification
+    SignupResponse response = UserMapper.toResponse(savedUser);
+    response.setMessage("Registration successful! Please check your email to verify your account.");
+    
+    // ✅ 4. Send email verification (using user ID to avoid lookup issues)
     try {
         System.out.println("Attempting to send verification email to: " + savedUser.getEmail());
-        emailVerificationService.sendVerificationEmailByEmail(savedUser.getEmail());
+        emailVerificationService.sendVerificationEmail(savedUser.getId());
         System.out.println("Verification email sent successfully to: " + savedUser.getEmail());
     } catch (Exception e) {
         System.err.println("Failed to send verification email: " + e.getMessage());
         e.printStackTrace();
-        // Don't fail registration if email sending fails
+        // Don't fail registration if email sending fails - just log the error
+        System.out.println("Registration completed successfully, but email verification failed");
     }
-
-    SignupResponse response = UserMapper.toResponse(savedUser);
-    response.setMessage("Registration successful! Please check your email to verify your account.");
+    
     return response;
+    } catch (Exception e) {
+        System.err.println("Registration failed with error: " + e.getMessage());
+        e.printStackTrace();
+        throw new RuntimeException("Registration failed: " + e.getMessage(), e);
+    }
 }
 
 
@@ -142,27 +158,13 @@ public SignupResponse registerUser(SignupRequest request) {
         String accessToken = jwtUtil.generateAccessToken(user);
         String refreshToken = jwtUtil.generateRefreshToken(user);
 
-        ResponseCookie accessCookie = ResponseCookie.from("access_token", accessToken)
-                .httpOnly(true)
-                .secure(true)
-                .path("/")
-                .maxAge(15*60)
-                .build();
-
-        ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refreshToken)
-                .httpOnly(true)
-                .secure(true)
-                .path("/")
-                .maxAge(24*60*60)
-                .build();
-
-        response.addHeader("Set-Cookie", accessCookie.toString());
-        response.addHeader("Set-Cookie", refreshCookie.toString());
-
         return LoginResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
+                .roleName(user.getRole().getName())
                 .isActive(user.isActive())
                 .message("Login Successful")
                 .build();

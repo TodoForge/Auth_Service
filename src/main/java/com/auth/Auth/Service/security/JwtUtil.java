@@ -9,6 +9,8 @@ import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
 
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 public class JwtUtil {
@@ -24,9 +26,12 @@ public class JwtUtil {
     public String generateAccessToken(User user){
         return Jwts.builder()
                 .setSubject(user.getUsername())
-                .claim("roles",user.getRole().getName())
+                .claim("roles", user.getRole().getName())
+                .claim("userId", user.getId().toString())
+                .claim("email", user.getEmail())
+                .claim("type", "access")
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis()+accessTokenValidity))
+                .setExpiration(new Date(System.currentTimeMillis() + accessTokenValidity))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -34,9 +39,10 @@ public class JwtUtil {
     public String generateRefreshToken(User user){
         return Jwts.builder()
                 .setSubject(user.getUsername())
-                .claim("roles",user.getRole().getName())
+                .claim("userId", user.getId().toString())
+                .claim("type", "refresh")
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis()+ refreshTokenValidity))
+                .setExpiration(new Date(System.currentTimeMillis() + refreshTokenValidity))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -48,6 +54,37 @@ public class JwtUtil {
                 .parseClaimsJws(token)
                 .getBody();
         return claims.getSubject();
+    }
+
+    public String getUserIdFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        return claims.get("userId", String.class);
+    }
+
+    public String getRoleFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        return claims.get("roles", String.class);
+    }
+
+    public boolean isRefreshToken(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(getSigningKey())
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+            return "refresh".equals(claims.get("type", String.class));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public boolean validateToken(String token) {

@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -28,32 +29,39 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
     private int tokenExpirationSeconds;
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void sendVerificationEmail(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        try {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Invalidate existing tokens for this user
-        emailVerificationTokenRepository.findByUserAndVerifiedFalse(user)
-                .ifPresent(token -> {
-                    token.setVerified(true);
-                    emailVerificationTokenRepository.save(token);
-                });
+            // Invalidate existing tokens for this user
+            emailVerificationTokenRepository.findByUserAndVerifiedFalse(user)
+                    .ifPresent(token -> {
+                        token.setVerified(true);
+                        emailVerificationTokenRepository.save(token);
+                    });
 
-        // Generate new token
-        String token = generateVerificationToken();
+            // Generate new token
+            String token = generateVerificationToken();
 
-        // Create email verification token
-        EmailVerificationToken verificationToken = EmailVerificationToken.builder()
-                .user(user)
-                .token(token)
-                .expiresAt(LocalDateTime.now().plusSeconds(tokenExpirationSeconds))
-                .verified(false)
-                .build();
+            // Create email verification token
+            EmailVerificationToken verificationToken = EmailVerificationToken.builder()
+                    .user(user)
+                    .token(token)
+                    .expiresAt(LocalDateTime.now().plusSeconds(tokenExpirationSeconds))
+                    .verified(false)
+                    .build();
 
-        emailVerificationTokenRepository.save(verificationToken);
+            emailVerificationTokenRepository.save(verificationToken);
 
-        // Send email with verification link
-        emailService.sendVerificationEmail(user.getEmail(), token);
+            // Send email with verification link
+            emailService.sendVerificationEmail(user.getEmail(), token);
+        } catch (Exception e) {
+            System.err.println("Error in sendVerificationEmail: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     @Override
