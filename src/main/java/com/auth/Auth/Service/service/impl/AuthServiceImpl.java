@@ -13,6 +13,7 @@ import com.auth.Auth.Service.repository.UserRepository;
 import com.auth.Auth.Service.repository.OrganizationRepository;
 import com.auth.Auth.Service.service.AuthService;
 import com.auth.Auth.Service.service.UserService;
+import com.auth.Auth.Service.service.EmailVerificationService;
 import com.auth.Auth.Service.entity.Organization;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.transaction.Transactional;
@@ -43,6 +44,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserService userService;
     private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
+    private final EmailVerificationService emailVerificationService;
 
    @Override
 public SignupResponse registerUser(SignupRequest request) {
@@ -66,11 +68,14 @@ public SignupResponse registerUser(SignupRequest request) {
                 return roleRepository.save(newRole);
             });
     user.setRole(adminRole);
-    user.setActive(true);
+    user.setActive(false); // User should be inactive until email verification
     user.setValid(true);
+    user.setEmailVerified(false); // Email not verified yet
 
     // ✅ 1. Save the user first
+    System.out.println("About to save user with email: " + user.getEmail());
     User savedUser = userRepository.save(user);
+    System.out.println("User saved successfully with ID: " + savedUser.getId() + " and email: " + savedUser.getEmail());
 
     // ✅ 2. Create default organization with savedUser as creator
     Organization defaultOrg = organizationRepository.findAll().stream()
@@ -89,8 +94,19 @@ public SignupResponse registerUser(SignupRequest request) {
     savedUser.setOrganizationId(defaultOrg.getId());
     userRepository.save(savedUser);
 
+    // ✅ 4. Send email verification
+    try {
+        System.out.println("Attempting to send verification email to: " + savedUser.getEmail());
+        emailVerificationService.sendVerificationEmailByEmail(savedUser.getEmail());
+        System.out.println("Verification email sent successfully to: " + savedUser.getEmail());
+    } catch (Exception e) {
+        System.err.println("Failed to send verification email: " + e.getMessage());
+        e.printStackTrace();
+        // Don't fail registration if email sending fails
+    }
+
     SignupResponse response = UserMapper.toResponse(savedUser);
-    response.setMessage("Admin Registered Successfully");
+    response.setMessage("Registration successful! Please check your email to verify your account.");
     return response;
 }
 
@@ -114,9 +130,13 @@ public SignupResponse registerUser(SignupRequest request) {
             throw new RuntimeException("Incorrect password");
         }
         
-        // Check if user is active
+        // Check if user is active (email verified)
         if (!user.isActive()) {
-            throw new RuntimeException("Account is deactivated. Contact admin.");
+            if (!user.isEmailVerified()) {
+                throw new RuntimeException("Please verify your email address before logging in. Check your inbox for the verification link.");
+            } else {
+                throw new RuntimeException("Account is deactivated. Contact admin.");
+            }
         }
 
         String accessToken = jwtUtil.generateAccessToken(user);

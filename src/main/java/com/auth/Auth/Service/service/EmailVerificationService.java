@@ -7,6 +7,9 @@ public interface EmailVerificationService {
     // Send verification email
     void sendVerificationEmail(UUID userId);
     
+    // Send verification email by email address
+    void sendVerificationEmailByEmail(String email);
+    
     // Verify email with token
     void verifyEmail(String token);
     

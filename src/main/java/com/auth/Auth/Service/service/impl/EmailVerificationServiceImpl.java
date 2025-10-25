@@ -5,6 +5,7 @@ import com.auth.Auth.Service.entity.User;
 import com.auth.Auth.Service.repository.EmailVerificationTokenRepository;
 import com.auth.Auth.Service.repository.UserRepository;
 import com.auth.Auth.Service.service.EmailVerificationService;
+import com.auth.Auth.Service.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -21,6 +22,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
 
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final UserRepository userRepository;
+    private final EmailService emailService;
 
     @Value("${email.verification.token.expiration:86400}") // 24 hours default
     private int tokenExpirationSeconds;
@@ -50,8 +52,55 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
 
         emailVerificationTokenRepository.save(verificationToken);
 
-        // TODO: Send email with verification link
-        // emailService.sendVerificationEmail(user.getEmail(), token);
+        // Send email with verification link
+        emailService.sendVerificationEmail(user.getEmail(), token);
+    }
+
+    @Override
+    public void sendVerificationEmailByEmail(String email) {
+        System.out.println("Looking for user with email: " + email);
+        
+        // Try case-insensitive lookup
+        User user = userRepository.findByEmailIgnoreCase(email)
+                .orElseGet(() -> {
+                    System.out.println("Case-insensitive lookup failed, trying exact match");
+                    return userRepository.findByEmail(email).orElse(null);
+                });
+        
+        if (user == null) {
+            System.err.println("User not found with email: " + email);
+            System.err.println("Available users in database:");
+            userRepository.findAll().forEach(u -> System.err.println("  - " + u.getEmail()));
+            throw new RuntimeException("User not found with email: " + email);
+        }
+        
+        System.out.println("Found user: " + user.getEmail() + " (ID: " + user.getId() + ")");
+
+        // Invalidate existing tokens for this user
+        emailVerificationTokenRepository.findByUserAndVerifiedFalse(user)
+                .ifPresent(token -> {
+                    token.setVerified(true);
+                    emailVerificationTokenRepository.save(token);
+                });
+
+        // Generate new token
+        String token = generateVerificationToken();
+
+        // Create email verification token
+        EmailVerificationToken verificationToken = EmailVerificationToken.builder()
+                .user(user)
+                .token(token)
+                .expiresAt(LocalDateTime.now().plusSeconds(tokenExpirationSeconds))
+                .verified(false)
+                .build();
+
+        emailVerificationTokenRepository.save(verificationToken);
+
+        // Send email with verification link
+        emailService.sendVerificationEmail(user.getEmail(), token);
+        
+        System.out.println("Verification email sent to: " + email);
+        System.out.println("Verification token: " + token);
     }
 
     @Override
@@ -62,13 +111,22 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
 
         User user = verificationToken.getUser();
 
-        // Mark email as verified
+        // Mark email as verified and activate user
         user.setEmailVerified(true);
+        user.setActive(true); // Activate user after email verification
         userRepository.save(user);
 
         // Mark token as verified
         verificationToken.setVerified(true);
         emailVerificationTokenRepository.save(verificationToken);
+        
+        // Send welcome email
+        try {
+            emailService.sendWelcomeEmail(user.getEmail(), user.getUsername());
+        } catch (Exception e) {
+            System.err.println("Failed to send welcome email: " + e.getMessage());
+            // Don't fail verification if welcome email fails
+        }
     }
 
     @Override
